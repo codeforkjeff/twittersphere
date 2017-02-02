@@ -4,6 +4,21 @@ require 'twitter'
 require 'pp'
 require 'rubyXL'
 
+# namespace for stashing the last HTTP response
+module Harvest
+  class << self
+    attr_accessor :response
+  end
+end
+
+class Twitter::REST::Response::ParseJson
+  alias_method :on_complete_original, :on_complete
+  def on_complete(response)
+    Harvest.response = response.body
+    on_complete_original(response)
+  end
+end
+
 client = Twitter::REST::Client.new do |config|
   config.consumer_key        = ENV['TWITTER_CONSUMER_KEY'] || nil
   config.consumer_secret     = ENV['TWITTER_CONSUMER_SECRET'] || nil
@@ -185,9 +200,11 @@ end
 begin
   workbook.set_up_spreadsheet(client.user(user))
   message = client.record_tweets(user, count, workbook)
-  spreadsheet_name = "#{user}_#{DateTime.now.to_time.to_i}.xlsx"
+  base_name = "#{user}_#{DateTime.now.to_time.to_i}"
+  spreadsheet_name = "#{base_name}.xlsx"
   puts 'Writing spreadsheet...'
   workbook.write(spreadsheet_name)
+  File.write("#{base_name}.json", Harvest.response, encoding: 'UTF-8')
   puts "#{message} Spreadsheet written to #{spreadsheet_name}."
 rescue Twitter::Error::TooManyRequests => error
   puts 'Rate limit hit, sleeping...'
